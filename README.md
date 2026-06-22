@@ -171,19 +171,6 @@ Evaluation results are written to `eval_results.json` inside each generated resu
 - The MEET backbone (`models/modules/MEET`) and the generative modeling utilities (`models/modules/generative`) can also be used as standalone packages. Each module contains a self-contained README, and you are welcome to use and explore them independently.
 
 
-## Citation
-
-If you use this codebase, please cite the accompanying MEET paper. A BibTeX entry will be added after release.
-
-```bibtex
-@article{meet2026,
-  title   = {Scalable Peptide Design via Memory-Efficient Equivariant Transformer},
-  author  = {TBD},
-  journal = {TBD},
-  year    = {2026}
-}
-```
-
 ## Contact
 
 For questions, please contact:
