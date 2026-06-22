@@ -1,0 +1,15 @@
+dataset:
+  class: FileDataset
+  file_paths:
+    - ./api/demo/AF-A0A1Y2U0P7-F1_0_cluster3-model0.cif
+    - ./api/demo/AF-A0A542XXF1-F1_0_cluster4-model0.cif
+  tgt_chains:
+    - R
+    - R
+  lig_chains:
+    - L
+    - L
+  pocket_dist_th: 20.0
+
+n_samples: 10 # for each complex
+batch_size: 16

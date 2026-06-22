@@ -1,0 +1,24 @@
+dataset:
+  test:
+    class: PeptideDataset
+    mmap_dir: ./dataset/test
+    min_pocket_dist: 10.0
+    max_pocket_dist: 20.0
+    in_memory: false
+    include_raw_data: true
+
+dataloader:
+  num_workers: 4
+  batch_size: 2
+
+pocket_dist_defs: [20]
+n_samples: 20
+n_cycles: 0
+
+sample_opt:
+  h_solver_type: DiffusionODE
+  v_solver_type: DiffusionODE
+  x_solver_type: DiffusionODE
+  num_steps: 100
+  vae_decoder_n_iter: 10
+  enable_mixed_precision: true

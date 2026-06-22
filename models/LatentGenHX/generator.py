@@ -1,0 +1,60 @@
+#!/usr/bin/python
+# -*- coding:utf-8 -*-
+from typing import Optional
+
+import torch
+import torch.nn as nn
+
+from ..modules.generative.base_model import IterativeGenerativeModel
+from ..modules.generative.path import XtInfo, ProbabilityPath
+
+
+class MultiModalGenerator(IterativeGenerativeModel):
+    """
+    Simple diffusion model for generating H, V, and X
+    """
+    def __init__(self, backbone: nn.Module, paths: dict[str, ProbabilityPath], model_targets: dict[str, str], **kwargs):
+        super().__init__(backbone, paths, model_targets, **kwargs)
+    
+    def preprocess_data(self, batch):
+        '''
+            batch: <key, torch.Tensor>, e.g.
+            {
+                'H': (N, dh)
+                'V': (N, 3, dv)
+                'X': (N, 3),
+                'position_ids': (N)
+                'batch_ids': (N)
+                'generate_mask': (N)
+            }
+        '''
+        generate_mask = batch['generate_mask']
+        x0 = { 'H': batch['H'][generate_mask], 'X': batch['X'][generate_mask] }
+        batch_ids = batch['batch_ids'][generate_mask]
+        batch_size = batch_ids.max() + 1
+        context_info = batch
+        return x0, batch_size, batch_ids, context_info  # only the ligand part, with original data in context_info
+
+    def postprocess_data(self, xt_infos: dict[str, XtInfo], t: torch.Tensor, batch_ids: Optional[torch.Tensor] = None, context_info = None):
+        # denoised H, X
+        return {
+            'H': xt_infos['H'].xt,
+            'X': xt_infos['X'].xt,
+        }
+
+    def model_prediction(self, xt_infos: dict[str, XtInfo], t: torch.Tensor, batch_ids: Optional[torch.Tensor] = None, context_info = None) -> dict[str, torch.Tensor]:
+        H_input = context_info['H'].clone()
+        X_input = context_info['X'].clone()
+        generate_mask = context_info['generate_mask']
+        H_input[generate_mask] = xt_infos['H'].xt.to(H_input.dtype)
+        X_input[generate_mask] = xt_infos['X'].xt.to(X_input.dtype)
+        H, X = self.backbone(
+            H_input, X_input,
+            context_info['position_ids'],
+            context_info['batch_ids'],
+            t[context_info['batch_ids']]
+        )
+        return {
+            'H': H[generate_mask],
+            'X': X[generate_mask]
+        }

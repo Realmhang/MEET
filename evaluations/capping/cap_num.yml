@@ -1,0 +1,8 @@
+TriAzole:
+  pair1:
+    C_ter: C2, N1, C1, O1, C14 # NME: CA N; NME-1: C O CA
+    N_ter: C7, C8, O2, N5, C9 #ACE: CA C O; ACE+1: N CA
+  pair2:
+    C_ter: C7, N6, C10, O3, C11
+    N_ter: C2, C12, O4, N7, C13
+

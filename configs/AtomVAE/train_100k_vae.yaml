@@ -1,0 +1,96 @@
+dataloader:
+  train:
+    batch_size: 1024
+    num_workers: 8
+    prefetch_factor: 2
+    shuffle: true
+  valid:
+    batch_size: 128
+    num_workers: 8
+dataset:
+  train:
+    class: PeptideDataset
+    max_pocket_dist: 20.0
+    min_pocket_dist: 10.0
+    mmap_dir: ./dataset/train_100K
+  valid:
+    class: PeptideDataset
+    max_pocket_dist: 20.0
+    min_pocket_dist: 10.0
+    mmap_dir: ./dataset/valid
+load_ckpt: ''
+model:
+  block_type_decoder_opt:
+    adaLN_zero: false
+    backend: xformers
+    edge_mode: none
+    n_heads: 8
+    n_layers: 3
+  block_type_decoder_type: MEET
+  class: AtomVAE_bond
+  disable_block_embedding: true
+  disable_chain_embedding: true
+  discrete_timestep: false
+  edge_size: 64
+  embed_size: 128
+  encoder_opt:
+    adaLN_zero: false
+    backend: xformers
+    d_edge: 64
+    edge_mode: all
+    n_heads: 8
+    n_layers: 6
+  encoder_type: MEET
+  fm_coord_prior_std: 1.0
+  h_latent_size: 8
+  h_latent_std: 1.0
+  hidden_size: 128
+  k_neighbors: 9
+  label_smoothing: 0.1
+  loss_weights:
+    Zh_kl_loss: 0.6
+    Zx_kl_loss: 0.8
+    atom_coord_ligand_loss: 1.0
+    atom_coord_pocket_loss: 1.0
+    block_type_loss: 1.0
+    bond_length_loss: 0.0
+    local_distance_loss: 0.5
+  struct_decoder_opt:
+    adaLN_zero: false
+    backend: xformers
+    d_edge: 64
+    edge_mode: all
+    n_heads: 8
+    n_layers: 6
+  struct_decoder_type: MEET
+  x_latent_std: 1.0
+  zh_noise_scale: 0.5
+  zx_noise_scale: 1.0
+trainer:
+  class: AtomVAETrainer
+  config:
+    continue_version: 0
+    enable_mixed_precision: true
+    find_unused_parameters: false
+    grad_clip: 1.0
+    logger: swanlab
+    max_step: 100000
+    metric_min_better: true
+    optimizer:
+      class: AdamW
+      lr: 0.001
+      weight_decay: 1.0e-05
+    patience: 10
+    proj_name: cpsea_scaleup
+    save_dir: ./runs/100k/vae
+    save_topk: 10
+    scheduler:
+      T_max: 100000
+      class: CosineAnnealingLR
+      eta_min: 1.0e-05
+      frequency: step
+    team: EPTV2
+    val_freq: 1000
+    val_freq_mode: step
+    warmup: 0
+  criterion: loss

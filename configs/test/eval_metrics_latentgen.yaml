@@ -1,0 +1,18 @@
+- class: AAR
+- class: RMSDComplex  # backbone only
+  all_atom: false
+- class: RMSDPocket
+  all_atom: false
+- class: RMSDLigand
+  all_atom: false
+- class: RMSDPocket
+  all_atom: true
+- class: DihedralAnglesPocket
+- class: DihedralAnglesLigand
+- class: ShapeComplementarity
+- class: dG_dSASA
+- class: dG
+- class: PoseBuster
+- class: SeqDiversity
+- class: StructDiversity
+- class: GRAVY

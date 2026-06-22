@@ -1,0 +1,75 @@
+dataloader:
+  train:
+    batch_size: 1024
+    num_workers: 8
+    prefetch_factor: 2
+    shuffle: true
+  valid:
+    batch_size: 128
+    num_workers: 8
+dataset:
+  train:
+    class: PeptideDataset
+    max_pocket_dist: 20.0
+    min_pocket_dist: 10.0
+    mmap_dir: ./dataset/train_1p2M
+  valid:
+    class: PeptideDataset
+    max_pocket_dist: 20.0
+    min_pocket_dist: 10.0
+    mmap_dir: ./dataset/valid
+load_ckpt: ''
+model:
+  autoencoder_ckpt: ./ckpt/1p2M/vae/vae_default_ls01_epoch85_step100000.ckpt
+  class: LatentGeneratorHX
+  hidden_size: 384
+  latent_deterministic: true
+  loss_weights:
+    H: 1.0
+    X: 1.0
+  model_targets:
+    H: eps
+    X: eps
+  net_opts:
+    adaLN_zero: false
+    backend: xformers
+    edge_mode: none
+    n_heads: 6
+    n_layers: 6
+    split_outputs: false
+    use_final_layer: true
+    use_final_linear: true
+  net_type: MEET
+  paths:
+    H: CosineDDPM
+    X: CosineDDPM
+  score_net_hv_return_delta: false
+trainer:
+  class: AtomVAETrainer
+  config:
+    continue_version: 0
+    enable_mixed_precision: true
+    find_unused_parameters: false
+    grad_clip: 1.0
+    grad_interval: 1
+    logger: swanlab
+    max_step: 100000
+    metric_min_better: true
+    optimizer:
+      class: AdamW
+      lr: 0.001
+      weight_decay: 1.0e-05
+    patience: 1000
+    proj_name: cpsea_scaleup
+    save_dir: ./runs/1p2M/ldm/mini
+    save_freq: 10000
+    save_topk: 10
+    scheduler:
+      T_max: 100000
+      class: CosineAnnealingLR
+      eta_min: 1.0e-05
+      frequency: step
+    team: EPTV2
+    val_freq: 1000
+    val_freq_mode: step
+  criterion: loss

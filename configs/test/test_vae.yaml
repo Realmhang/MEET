@@ -1,0 +1,23 @@
+dataset:
+  test:
+    class: PeptideDataset
+    mmap_dir: ./dataset/test
+    min_pocket_dist: 10.0
+    max_pocket_dist: 20.0
+    in_memory: false
+    include_raw_data: true
+
+dataloader:
+  num_workers: 4
+  batch_size: 16
+
+pocket_dist_defs: [20]
+n_samples: 5
+n_cycles: 0
+
+sample_opt:
+  n_iter: 10
+  manual_noise_h_std: 0.0
+  manual_noise_v_std: 0.0
+  manual_noise_x_std: 0.0
+  enable_mixed_precision: true

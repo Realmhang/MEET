@@ -1,0 +1,16 @@
+- class: AAR
+- class: RMSDComplex  # backbone only
+  all_atom: false
+- class: RMSDPocket
+  all_atom: false
+- class: RMSDLigand
+  all_atom: false
+- class: RMSDComplex
+  all_atom: true
+- class: RMSDPocket
+  all_atom: true
+- class: RMSDLigand
+  all_atom: true
+- class: PoseBuster
+- class: DihedralAnglesPocket
+- class: DihedralAnglesLigand
