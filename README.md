@@ -132,6 +132,7 @@ Generation uses configs from `configs/test` and writes references, candidates, a
 ```bash
 CUDA_VISIBLE_DEVICES=0 python generate.py \
   --config configs/test/test_vae.yaml \
+  --model_config configs/AtomVAE/train_1p2M_vae.yaml \
   --ckpt ./ckpt/1p2M/vae/vae_default_ls01_epoch85_step100000.ckpt \
   --save_dir ./outputs/vae
 ```
@@ -141,9 +142,15 @@ CUDA_VISIBLE_DEVICES=0 python generate.py \
 ```bash
 CUDA_VISIBLE_DEVICES=0 python generate.py \
   --config configs/test/test_latentgen.yaml \
+  --model_config configs/LatentGenHX/train_1p2M_base.yaml \
   --ckpt ./ckpt/1p2M/ldm/base/epoch85_step100000.ckpt \
   --save_dir ./outputs/latentgen
 ```
+
+`--model_config` points at the training config used to build the model; the
+checkpoint's `state_dict` is then loaded into a freshly constructed model (see
+`utils/checkpoint.py`). Pass the config matching the checkpoint's scale
+(`train_1p2M_{mini,small,base,large}.yaml`).
 
 The generator creates one subdirectory per pocket definition, such as `pocket_dist_20`, and stores generated structures under `candidates`.
 

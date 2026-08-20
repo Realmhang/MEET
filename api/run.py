@@ -7,12 +7,13 @@ from copy import deepcopy
 import yaml
 import torch
 
-from generate import Recorder, to_device, generate_wrapper
+from generate import Recorder, to_device, generate_wrapper, load_config as load_model_config
 from data.bioparse import VOCAB
 from data.bioparse.writer.complex_to_mmcif import complex_to_mmcif
 from utils.config_utils import overwrite_values
 from utils.logger import print_log
 from utils.random_seed import setup_seed
+from utils.checkpoint import load_model
 import utils.register as R
 
 from .dataset import *
@@ -22,6 +23,9 @@ def parse():
     parser = argparse.ArgumentParser(description='Generate peptides given epitopes')
     parser.add_argument('--config', type=str, required=True, help='Path to the test configuration')
     parser.add_argument('--ckpt', type=str, required=True, help='Path to checkpoint')
+    parser.add_argument('--model_config', type=str, required=True,
+                        help='Path to a training config used to construct the model; '
+                             'the checkpoint state_dict is then loaded into the fresh model.')
     parser.add_argument('--save_dir', type=str, required=True, help='Directory to save generated peptides')
 
     parser.add_argument('--gpu', type=int, default=0, help='GPU to use, -1 for cpu')
@@ -35,7 +39,8 @@ def main(args, opt_args):
     config = yaml.safe_load(open(args.config, 'r'))
     config = overwrite_values(config, opt_args)
 
-    model = torch.load(args.ckpt, map_location='cpu', weights_only=False)
+    model_cfg = load_model_config(args.model_config)['model']
+    model = load_model(args.ckpt, model_config=model_cfg)
     device = torch.device('cpu' if args.gpu == -1 else f'cuda:{args.gpu}')
     model.to(device)
     model.eval()

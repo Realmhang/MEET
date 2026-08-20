@@ -6,6 +6,7 @@ tmp
 dev
 
 ckpts
+ckpt
 
 *.png
 !docs/assets/meet_arch.png

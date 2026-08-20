@@ -18,6 +18,40 @@ from models.LatentGenHX.configs import LatentGeneratorSampleConfig
 from utils.logger import print_log
 from utils.random_seed import setup_seed
 from utils.config_utils import overwrite_values
+from utils.checkpoint import load_model
+
+try:
+    from omegaconf import OmegaConf
+except ImportError:
+    OmegaConf = None
+
+
+def _get_by_path(config, path):
+    value = config
+    for key in path.split('.'):
+        value = value[key]
+    return value
+
+
+def _resolve_refs(config, root=None):
+    if root is None:
+        root = config
+    if isinstance(config, dict):
+        return {key: _resolve_refs(value, root) for key, value in config.items()}
+    if isinstance(config, list):
+        return [_resolve_refs(value, root) for value in config]
+    if isinstance(config, str) and config.startswith('${') and config.endswith('}'):
+        return _get_by_path(root, config[2:-1])
+    return config
+
+
+def load_config(path):
+    with open(path, 'r') as fin:
+        text = fin.read()
+    if OmegaConf is not None:
+        config = OmegaConf.create(text)
+        return OmegaConf.to_container(config, resolve=True)
+    return _resolve_refs(yaml.safe_load(text))
 
 
 class Recorder:
@@ -111,7 +145,14 @@ def prepare(args, opt_args):
     b_ckpt = args.ckpt if args.ckpt.endswith('.ckpt') else get_best_ckpt(args.ckpt)
     ckpt_dir = os.path.split(os.path.split(b_ckpt)[0])[0]
     print(f'Using checkpoint {b_ckpt}')
-    model = torch.load(b_ckpt, map_location='cpu', weights_only=False)
+    # Construct a fresh model from the training config and load the checkpoint
+    # state_dict into it. This avoids relying on the pickled model object, which
+    # can break on forward when the class definition gained new attributes
+    # since the checkpoint was saved (e.g. older FinalLayer without
+    # use_final_linear).
+    model_cfg = load_config(args.model_config)['model']
+    print(f'Constructing model from config {args.model_config} and loading state_dict')
+    model = load_model(b_ckpt, model_config=model_cfg)
     device = torch.device('cpu' if args.gpu == -1 else f'cuda:{args.gpu}')
     model.to(device)
     model.eval()
@@ -257,6 +298,9 @@ def parse():
     parser = argparse.ArgumentParser(description='Generate peptides given epitopes')
     parser.add_argument('--config', type=str, required=True, help='Path to the test configuration')
     parser.add_argument('--ckpt', type=str, required=True, help='Path to checkpoint')
+    parser.add_argument('--model_config', type=str, required=True,
+                        help='Path to a training config used to construct the model; '
+                             'the checkpoint state_dict is then loaded into the fresh model.')
     parser.add_argument('--save_dir', type=str, default=None, help='Directory to save generated peptides')
 
     parser.add_argument('--gpu', type=int, default=0, help='GPU to use, -1 for cpu')
