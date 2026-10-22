@@ -6,9 +6,19 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_scatter import scatter_mean
-import xformers
-import xformers.ops as xops
-from xformers.ops.fmha.attn_bias import BlockDiagonalMask
+try:
+    import xformers
+    import xformers.ops as xops
+    from xformers.ops.fmha.attn_bias import BlockDiagonalMask
+except ImportError:
+    # DCU/HIP: no xformers build; use mathematically-equivalent SDPA shim
+    from .xformers_compat import BlockDiagonalMask
+    from .xformers_compat import memory_efficient_attention as _mea_compat
+    class _XopsShim:
+        @staticmethod
+        def memory_efficient_attention(*args, **kwargs):
+            return _mea_compat(*args, **kwargs)
+    xops = _XopsShim()
 
 from .utils import ScalarNorm, VectorNorm, init_normal, MLP, cross_feats, QKV_Prep, swiglu
 
@@ -16,8 +26,10 @@ try:
     from xformers.ops.fmha import _set_use_fa3
     _set_use_fa3(False)
     print('Disable FlashAttention 3, which causes illegal memory access in this project')
+except NameError:
+    pass  # xformers not installed (DCU shim path); nothing to disable
 except Exception as e:
-    print(f'Failed to disable FlashAttention 3: {str(e)}, current version of xformers == {xformers.__version__} may not have function _set_use_fa3')
+    print(f'Failed to disable FlashAttention 3: {str(e)}')
 
 
 ACTFNDICT = {
