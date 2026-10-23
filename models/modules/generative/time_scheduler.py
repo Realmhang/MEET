@@ -27,4 +27,7 @@ class UniformTimeScheduler(TimeScheduler):
         self.t_max = t_max
 
     def sample_time_steps(self, num_samples) -> torch.Tensor:
-        return torch.rand(num_samples) * (self.t_max - self.t_min) + self.t_min
+        # generate on-device: CPU->GPU copy is illegal during CUDA graph capture,
+        # and CUDA philox RNG is capture-safe
+        dev = 'cuda' if torch.cuda.is_available() else 'cpu'
+        return torch.rand(num_samples, device=dev) * (self.t_max - self.t_min) + self.t_min

@@ -123,10 +123,18 @@ class IterativeGenerativeModel(ABC, nn.Module):
             )
             loss_per_field_per_sample = loss.mean(dim=tuple(range(1, loss.ndim)))
             if batch_ids is not None:
-                loss_per_field_per_sample = scatter(loss_per_field_per_sample, dim=0, index=batch_ids, reduce='mean')
+                # explicit dim_size: torch_scatter's inference does index.max().item()
+                # which is a device sync (illegal during CUDA graph capture)
+                _ds = int(t.shape[0]) if t is not None else None
+                loss_per_field_per_sample = scatter(loss_per_field_per_sample, dim=0,
+                                                    index=batch_ids, reduce='mean', dim_size=_ds)
             weight = self.loss_weights[field].get_weight(t)
             loss_per_field_per_sample = loss_per_field_per_sample * weight
-            losses[field] = loss_per_field_per_sample.mean()
+            rsm = context_info.get('real_sample_mask') if isinstance(context_info, dict) else None
+            if rsm is not None:
+                losses[field] = (loss_per_field_per_sample * rsm).sum() / rsm.sum()
+            else:
+                losses[field] = loss_per_field_per_sample.mean()
 
         
         total_loss = sum(losses.values())
@@ -140,12 +148,16 @@ class IterativeGenerativeModel(ABC, nn.Module):
             :return: the computed loss
         '''
         x0_dict, batch_size, batch_ids, context_info = self.preprocess_data(batch)
-        t = self.time_scheduler.sample_time_steps(batch_size).to(self.device)
+        if isinstance(batch, dict) and '_static_t' in batch:
+            t = batch['_static_t']  # pre-sampled outside the graph (capture-safe)
+        else:
+            t = self.time_scheduler.sample_time_steps(batch_size).to(self.device)
 
         xt_infos = {}
         for field, path in self.paths.items():
             x0 = x0_dict[field]
-            xt_infos[field] = path.sample_xt(x0, t, batch_ids = batch_ids)
+            _eps = batch.get(f'_static_eps_{field}') if isinstance(batch, dict) else None
+            xt_infos[field] = path.sample_xt(x0, t, batch_ids = batch_ids, eps=_eps)
 
         model_predictions = self.model_prediction(xt_infos, t, batch_ids, context_info)
 

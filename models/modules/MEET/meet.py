@@ -6,6 +6,11 @@ import torch.nn as nn
 from .model.meet_layers import InitLayer, MEETLayer, FinalLayer, MEETBondLayer
 from .model.utils import batch_ids_to_seqlen, init_normal
 
+import os as _os
+_SEQLEN_STASH_ON = _os.environ.get('MEET_GRAPH', '0') == '1'
+_SEQLEN_STASH = {}
+
+
 class MEET(torch.nn.Module):
     def __init__(
             self, 
@@ -113,6 +118,12 @@ class MEET(torch.nn.Module):
 
 
     def get_seqlen_list(self, batch_ids, ligand_mask=None):
+        # graph-capture stash: keyed by the (static) batch_ids buffer address so
+        # the .cpu().tolist() sync never runs during stream capture.
+        if _SEQLEN_STASH_ON:
+            hit = _SEQLEN_STASH.get(batch_ids.data_ptr())
+            if hit is not None:
+                return hit
         if ligand_mask is None:
             lengths = batch_ids_to_seqlen(batch_ids)
         else:
@@ -121,7 +132,10 @@ class MEET(torch.nn.Module):
             receptor_lengths = batch_ids_to_seqlen(receptor_batch_ids)
             ligand_lengths = batch_ids_to_seqlen(ligand_batch_ids)
             lengths = torch.cat([receptor_lengths, ligand_lengths], dim=0)
-        return lengths.detach().cpu().tolist()
+        result = lengths.detach().cpu().tolist()
+        if _SEQLEN_STASH_ON:
+            _SEQLEN_STASH[batch_ids.data_ptr()] = result
+        return result
 
     def rearrange_index(self, N, device, ligand_mask = None):
         forward_ids, backward_ids = torch.arange(N, device=device), torch.arange(N, device = device)

@@ -28,6 +28,10 @@ from utils.logger import print_log
 ########### Import your packages below ##########
 
 
+
+_FUSED_OPT = __import__("os").environ.get("MEET_FUSED_OPT", "0") == "1"
+_GRAPH = __import__("os").environ.get("MEET_GRAPH", "0") == "1"
+
 class TrainConfig:
     def __init__(self, save_dir, max_epoch=None, max_step=None, warmup=0,
                  metric_min_better=True, patience=3,
@@ -222,7 +226,18 @@ class Trainer:
         t_iter = tqdm(self.train_loader, ascii=True) if self._is_main_proc() else self.train_loader
         for batch in t_iter:
             batch = self.to_device(batch, device)
-            if self.config.enable_mixed_precision:
+            _graphed = False
+            _inner = getattr(self.model, 'module', self.model)
+            if _GRAPH and hasattr(_inner, '_meet_graph_step') and self.config.grad_interval == 1:
+                # fwd-only graph capture: replay returns a static loss; backward
+                # runs eagerly below (platform cannot capture backward)
+                loss = _inner._meet_graph_step(
+                    batch,
+                    scaler=None if _FUSED_OPT else (self.scaler if self.config.enable_mixed_precision else None),
+                    autocast_dtype=self.half_precision_type if self.config.enable_mixed_precision else None,
+                    ddp=None)
+                _graphed = True
+            elif self.config.enable_mixed_precision:
                 with torch.autocast(device_type='cuda', dtype=self.half_precision_type):
                     loss = self.train_step(batch, self.global_step)
             else:
@@ -254,10 +269,17 @@ class Trainer:
 
             if not torch.any(skip_step):
             # if skip_step.item() == 0:
-                if self.config.enable_mixed_precision:
+                if self.config.enable_mixed_precision and not _FUSED_OPT and not _graphed:
                     backward_ok = safe_backward(self.scaler.scale(loss), self.model)
                 else:
-                    backward_ok = safe_backward(loss, self.model)
+                    if _graphed:
+                        backward_ok = True
+                        try:
+                            loss.backward(retain_graph=True)
+                        except Exception:
+                            backward_ok = False
+                    else:
+                        backward_ok = safe_backward(loss, self.model)
                 if not backward_ok:
                     print_log(f'Backward out of memory, skip', level='WARN')
                     loss = loss.detach() # manually delete the computing graph
@@ -270,21 +292,48 @@ class Trainer:
             if not torch.any(skip_step):
             # if skip_step.item() == 0:
                 if (self.global_step + 1) % self.config.grad_interval == 0:
-                    if self.config.grad_clip is not None:
+                    if _FUSED_OPT:
+                        # fused clip+step: one foreach_norm pass on raw grads; the
+                        # clip factor is folded into the fused adamw kernel via its
+                        # grad_scale hook (g_eff = grad * coeff) — skips the separate
+                        # unscale pass AND the clip mul pass (~2GB traffic/step).
+                        # bf16 autocast keeps grads fp32, so loss scaling is unneeded;
+                        # non-finite norm -> found_inf -> kernel skips the update.
+                        _ps = [p for p in self.model.parameters() if p.grad is not None and p.requires_grad]
+                        _gs = [p.grad for p in _ps]
+                        _norms = torch._foreach_norm(_gs)
+                        ori_grad_norm = torch.linalg.vector_norm(torch.stack(_norms))
+                        if self.config.grad_clip is not None:
+                            _coeff = torch.clamp(self.config.grad_clip / (ori_grad_norm + 1e-6), max=1.0)
+                        else:
+                            _coeff = torch.ones_like(ori_grad_norm)
+                        self.optimizer.grad_scale = 1.0 / _coeff
+                        self.optimizer.found_inf = (~torch.isfinite(ori_grad_norm)).float()
+                        self.optimizer.step()
+                        del self.optimizer.grad_scale, self.optimizer.found_inf
+                        # recording gradients
+                        self.log('Grad Norm', ori_grad_norm.detach().cpu(), self.global_step)
+                    elif self.config.grad_clip is not None:
                         if self.config.enable_mixed_precision: self.scaler.unscale_(self.optimizer)
                         ori_grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
+                        # recording gradients
+                        self.log('Grad Norm', ori_grad_norm.cpu(), self.global_step)
+                        if self.config.enable_mixed_precision:
+                            self.scaler.step(self.optimizer)
+                            self.scaler.update()
+                        else: self.optimizer.step()
                     else:
                         ori_grad_norm = 0
                         for p in self.model.parameters():
                             if p.grad is not None and p.requires_grad:
                                 ori_grad_norm += p.grad.detach().data.norm(2) ** 2
                         ori_grad_norm = ori_grad_norm ** 0.5
-                    # recording gradients
-                    self.log('Grad Norm', ori_grad_norm.cpu(), self.global_step)
-                    if self.config.enable_mixed_precision:
-                        self.scaler.step(self.optimizer)
-                        self.scaler.update()
-                    else: self.optimizer.step()
+                        # recording gradients
+                        self.log('Grad Norm', ori_grad_norm.cpu(), self.global_step)
+                        if self.config.enable_mixed_precision:
+                            self.scaler.step(self.optimizer)
+                            self.scaler.update()
+                        else: self.optimizer.step()
                     self._train_step_end(device)
             else:
                 self.optimizer.zero_grad()

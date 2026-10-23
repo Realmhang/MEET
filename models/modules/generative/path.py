@@ -60,8 +60,8 @@ class ProbabilityPath(ABC):
         raise NotImplementedError("This probability path does not have an explicit markovian sde form")
 
     
-    def sample_xt(self, x0: torch.Tensor, t: torch.Tensor, consider_vector_field: bool = False, batch_ids: Optional[torch.Tensor] = None) -> XtInfo:
-        eps = torch.randn_like(x0)
+    def sample_xt(self, x0: torch.Tensor, t: torch.Tensor, consider_vector_field: bool = False, batch_ids: Optional[torch.Tensor] = None, eps: Optional[torch.Tensor] = None) -> XtInfo:
+        eps = torch.randn_like(x0) if eps is None else eps.to(x0.dtype)
         eta_t, sigma_t = self.eta(t).to(x0.dtype), self.sigma(t).to(x0.dtype)
         eta_t, sigma_t = maybe_expand_like(eta_t, x0, batch_ids=batch_ids), maybe_expand_like(sigma_t, eps, batch_ids=batch_ids)
         xt = eta_t * x0 + sigma_t * eps
@@ -150,8 +150,8 @@ class BaseFlowMatchingPath(ProbabilityPath):
     def d_eta(self, t: torch.Tensor) -> torch.Tensor:
         return -self.d_sigma(t)
 
-    def sample_xt(self, x0: torch.Tensor, t: torch.Tensor, consider_vector_field: bool = False, batch_ids: Optional[torch.Tensor] = None) -> XtInfo:
-        return super().sample_xt(x0, t, batch_ids = batch_ids, consider_vector_field = True)
+    def sample_xt(self, x0: torch.Tensor, t: torch.Tensor, consider_vector_field: bool = False, batch_ids: Optional[torch.Tensor] = None, eps: Optional[torch.Tensor] = None) -> XtInfo:
+        return super().sample_xt(x0, t, batch_ids = batch_ids, consider_vector_field = True, eps = eps)
 
 
 class VanillaFlowMatching(BaseFlowMatchingPath):

@@ -29,8 +29,9 @@ class MultiModalGenerator(IterativeGenerativeModel):
             }
         '''
         generate_mask = batch['generate_mask']
-        x0 = { 'H': batch['H'][generate_mask], 'X': batch['X'][generate_mask] }
-        batch_ids = batch['batch_ids'][generate_mask]
+        ligand_idx = batch['ligand_idx']  # int64 [L]; capture-safe (bool mask indexing syncs)
+        x0 = { 'H': batch['H'].index_select(0, ligand_idx), 'X': batch['X'].index_select(0, ligand_idx) }
+        batch_ids = batch['batch_ids'].index_select(0, ligand_idx)
         batch_size = batch_ids.max() + 1
         context_info = batch
         return x0, batch_size, batch_ids, context_info  # only the ligand part, with original data in context_info
@@ -45,9 +46,9 @@ class MultiModalGenerator(IterativeGenerativeModel):
     def model_prediction(self, xt_infos: dict[str, XtInfo], t: torch.Tensor, batch_ids: Optional[torch.Tensor] = None, context_info = None) -> dict[str, torch.Tensor]:
         H_input = context_info['H'].clone()
         X_input = context_info['X'].clone()
-        generate_mask = context_info['generate_mask']
-        H_input[generate_mask] = xt_infos['H'].xt.to(H_input.dtype)
-        X_input[generate_mask] = xt_infos['X'].xt.to(X_input.dtype)
+        ligand_idx = context_info['ligand_idx']  # capture-safe scatter
+        H_input.index_copy_(0, ligand_idx, xt_infos['H'].xt.to(H_input.dtype))
+        X_input.index_copy_(0, ligand_idx, xt_infos['X'].xt.to(X_input.dtype))
         H, X = self.backbone(
             H_input, X_input,
             context_info['position_ids'],
@@ -55,6 +56,6 @@ class MultiModalGenerator(IterativeGenerativeModel):
             t[context_info['batch_ids']]
         )
         return {
-            'H': H[generate_mask],
-            'X': X[generate_mask]
+            'H': H.index_select(0, ligand_idx),
+            'X': X.index_select(0, ligand_idx)
         }
