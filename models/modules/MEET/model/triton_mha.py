@@ -596,7 +596,7 @@ def _pdp_kernel(
         dp = tl.where(mask_n[None, :], dp, 0.0)
 
         # store tiles: [BM, BN], row-major at h*N2 + off2 + i*s + j
-        ptrs = h * N2 + off2 + offs_m[:, None] * s + offs_n[None, :]
+        ptrs = h.to(tl.int64) * N2.to(tl.int64) + off2.to(tl.int64) + offs_m[:, None].to(tl.int64) * s.to(tl.int64) + offs_n[None, :]
         tl.store(PBUF + ptrs, p.to(PBUF.dtype.element_ty),
                  mask=mask_m[:, None] & mask_n[None, :])
         tl.store(DPBUF + ptrs, dp.to(DPBUF.dtype.element_ty),
@@ -638,7 +638,7 @@ def _dq_t_kernel(
         offs_n = start_n * BN + tl.arange(0, BN)
         mask_n = offs_n < s
         kv_idx = seq_start + offs_n
-        dp = tl.load(DPBUF + h * N2 + off2 + offs_m[:, None] * s + offs_n[None, :],
+        dp = tl.load(DPBUF + h.to(tl.int64) * N2.to(tl.int64) + off2.to(tl.int64) + offs_m[:, None].to(tl.int64) * s.to(tl.int64) + offs_n[None, :],
                      mask=mask_m[:, None] & mask_n[None, :], other=0.0)
         k_base = K + kv_idx[:, None] * stridek_n + h * stridek_h
         k1a = tl.load(k_base + offs_128[None, :], mask=mask_n[:, None], other=0.0)
@@ -698,7 +698,7 @@ def _dkv_t_kernel(
         offs_m = start_m * BM + tl.arange(0, BM)
         mask_m = offs_m < s
         q_idx = seq_start + offs_m
-        tptr = h * N2 + off2 + offs_m[:, None] * s + offs_n[None, :]
+        tptr = h.to(tl.int64) * N2.to(tl.int64) + off2.to(tl.int64) + offs_m[:, None].to(tl.int64) * s.to(tl.int64) + offs_n[None, :]
         p = tl.load(PBUF + tptr, mask=mask_m[:, None] & mask_n[None, :], other=0.0)
         dp = tl.load(DPBUF + tptr, mask=mask_m[:, None] & mask_n[None, :], other=0.0)
         pT = tl.trans(p)
@@ -859,7 +859,7 @@ def _p_store_kernel(
         p = tl.exp(sc - lse[:, None])
         p = tl.where(mask_n[None, :], p, 0.0)
 
-        ptrs = h * N2 + off2 + offs_m[:, None] * s + offs_n[None, :]
+        ptrs = h.to(tl.int64) * N2.to(tl.int64) + off2.to(tl.int64) + offs_m[:, None].to(tl.int64) * s.to(tl.int64) + offs_n[None, :]
         tl.store(PBUF + ptrs, p.to(PBUF.dtype.element_ty),
                  mask=mask_m[:, None] & mask_n[None, :])
 
@@ -902,7 +902,7 @@ def _dp_store_kernel(
         offs_n = start_n * BN + tl.arange(0, BN)
         mask_n = offs_n < s
         kv_idx = seq_start + offs_n
-        tptr = h * N2 + off2 + offs_m[:, None] * s + offs_n[None, :]
+        tptr = h.to(tl.int64) * N2.to(tl.int64) + off2.to(tl.int64) + offs_m[:, None].to(tl.int64) * s.to(tl.int64) + offs_n[None, :]
         p = tl.load(PBUF + tptr, mask=mask_m[:, None] & mask_n[None, :], other=0.0)
 
         v_base = V + kv_idx[:, None] * stridev_n + h * stridev_h
@@ -956,7 +956,7 @@ def _dk_t_kernel(
         offs_m = start_m * BM + tl.arange(0, BM)
         mask_m = offs_m < s
         q_idx = seq_start + offs_m
-        tptr = h * N2 + off2 + offs_m[:, None] * s + offs_n[None, :]
+        tptr = h.to(tl.int64) * N2.to(tl.int64) + off2.to(tl.int64) + offs_m[:, None].to(tl.int64) * s.to(tl.int64) + offs_n[None, :]
         dp = tl.load(DPBUF + tptr, mask=mask_m[:, None] & mask_n[None, :], other=0.0)
         dpT = tl.trans(dp)
         dpTq = dpT.to(tl.bfloat16)
@@ -1012,7 +1012,7 @@ def _dv_t_kernel(
         offs_m = start_m * BM + tl.arange(0, BM)
         mask_m = offs_m < s
         q_idx = seq_start + offs_m
-        tptr = h * N2 + off2 + offs_m[:, None] * s + offs_n[None, :]
+        tptr = h.to(tl.int64) * N2.to(tl.int64) + off2.to(tl.int64) + offs_m[:, None].to(tl.int64) * s.to(tl.int64) + offs_n[None, :]
         p = tl.load(PBUF + tptr, mask=mask_m[:, None] & mask_n[None, :], other=0.0)
         pT = tl.trans(p)
         pTdo = pT.to(tl.bfloat16)

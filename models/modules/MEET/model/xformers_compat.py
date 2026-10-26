@@ -38,6 +38,45 @@ except Exception:
         _triton_mha = None
 
 
+# Safety cap for the tiled5 backward: it materializes P/dP in a ragged buffer
+# of size sum(seqlen^2) * heads. A single very long sequence (e.g. a huge
+# complex) can blow past the int32-indexed buffer / available memory and fault
+# the device. Past the cap we recompute gradients with SDPA instead
+# (memory O(N), no P materialization) — same math, slower but safe.
+_N2_CAP = int(__import__('os').environ.get('MEET_N2_CAP', str(1 << 28)))  # 268M elems
+
+
+def _sdpa_bwd(q, k, v, o, do, cu, seqlens, scale):
+    """Per-sequence SDPA backward (no P materialization) — memory-safe fallback."""
+    import torch.nn.functional as F
+    off = 0
+    dq = torch.empty_like(q)
+    dk = torch.empty_like(k)
+    dv = torch.empty_like(v)
+    for si in seqlens:
+        s = int(si)
+        qs = q[off:off + s].transpose(0, 1).unsqueeze(0).detach().requires_grad_(True)
+        ks = k[off:off + s].transpose(0, 1).unsqueeze(0).detach().requires_grad_(True)
+        vs = v[off:off + s].transpose(0, 1).unsqueeze(0).detach().requires_grad_(True)
+        dos = do[off:off + s].transpose(0, 1).unsqueeze(0)
+        out = F.scaled_dot_product_attention(qs.to(torch.bfloat16), ks.to(torch.bfloat16),
+                                             vs.to(torch.bfloat16), scale=scale)
+        out.backward(dos.to(torch.bfloat16))
+        dq[off:off + s] = qs.grad.transpose(0, 1).to(q.dtype)
+        dk[off:off + s] = ks.grad.transpose(0, 1).to(k.dtype)
+        dv[off:off + s] = vs.grad.transpose(0, 1).to(v.dtype)
+        off += s
+    return dq, dk, dv
+
+
+def _tiled5_or_sdpa(q, k, v, o, lse, do, cu, seqlens, scale, max_len):
+    n2 = sum(int(s) * int(s) for s in seqlens)
+    if n2 > _N2_CAP:
+        return _sdpa_bwd(q, k, v, o, do, cu, seqlens, scale)
+    return _triton_mha.mha_varlen_bwd_tiled5(
+        q, k, v, o, lse, do, cu, seqlens, scale, max_len=max_len)
+
+
 class _TritonVarlenAttn(torch.autograd.Function):
     """Autograd wrapper around the custom triton varlen kernel (fwd + tiled bwd)."""
 
@@ -57,7 +96,7 @@ class _TritonVarlenAttn(torch.autograd.Function):
     def backward(ctx, do):
         q, k, v, o, lse, cu = ctx.saved_tensors
         if ctx.seqlens is not None:
-            dq, dk, dv = _triton_mha.mha_varlen_bwd_tiled5(
+            dq, dk, dv = _tiled5_or_sdpa(
                 q, k, v, o, lse, do.contiguous(), cu, list(ctx.seqlens), ctx.scale,
                 max_len=ctx.max_len)
         else:

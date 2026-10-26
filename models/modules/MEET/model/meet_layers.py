@@ -340,7 +340,7 @@ class MEETLayer(nn.Module):
         self.att_wrapper.reset_parameters()
         self.ffn_wrapper.reset_parameters()
 
-    @torch.compile
+    @torch.compile(mode="max-autotune-no-cudagraphs")
     def forward(self, feats, coords, seqlen_info, conditions=None):
         feats = self.att_wrapper(feats, conditions=conditions, coords=coords, seqlen_info=seqlen_info)
         return self.ffn_wrapper(feats, conditions=conditions)
@@ -356,7 +356,7 @@ class MEETBondLayer(MEETLayer):
         super().reset_parameters()
         self.edge_wrapper.reset_parameters()
 
-    @torch.compile
+    @torch.compile(mode="max-autotune-no-cudagraphs")
     def forward(self, feats, coords, seqlen_info, edge_index, edge_attr, conditions=None):
         feats = self.edge_wrapper(feats, conditions=conditions, coords=coords, edge_index=edge_index, edge_attr=edge_attr)
         return super().forward(feats, coords, seqlen_info, conditions=conditions)
