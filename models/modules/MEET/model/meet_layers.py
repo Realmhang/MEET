@@ -42,6 +42,9 @@ ACTFNDICT = {
 }
 
 
+_VAE_FUSED_PREP = __import__('os').environ.get('MEET_VAE_FUSED_PREP', '0') == '1'
+
+
 class InitLayer(nn.Module):
     def __init__(self, model_config):
         super().__init__()
@@ -82,6 +85,13 @@ class InitLayer(nn.Module):
         H_q = self.scaler_q_norm(H_q)
         H_k = self.scaler_k_norm(H_k)
 
+        if _VAE_FUSED_PREP and not torch.is_grad_enabled() and coord.is_cuda:
+            # frozen-VAE fast path: ONE triton kernel builds q/k/v (dist feats +
+            # cat + pad + v expand). Bit-exact vs the eager chain below (unit
+            # tested); the trainable LDM InitLayer path (grad enabled) is unchanged.
+            from .triton_vae_prep import fused_vae_prep
+            return fused_vae_prep(H_q, H_k, coord, self.dist_scale, self.n_heads)
+
         x, y, z = coord.chunk(3, dim=-1)
         ones = torch.ones_like(x)
         dist_q = self.dist_scale * torch.cat([x**2, ones, -2 * x, y**2, ones, -2 * y, z**2, ones, -2 * z], dim=-1).unsqueeze(-2)
@@ -98,9 +108,13 @@ class InitLayer(nn.Module):
 
         atom_feat = atom_feat.unsqueeze(0)
         coords = coords.unsqueeze(0)
-        attn_q, attn_k = self._prepare_qk(atom_feat.squeeze(0), coords.squeeze(0))
-        v = coords.unsqueeze(-2).expand(-1, -1, self.n_heads, -1)
-        v = F.pad(v, (0, 5), value=0)
+        _pq = self._prepare_qk(atom_feat.squeeze(0), coords.squeeze(0))
+        if len(_pq) == 3:
+            attn_q, attn_k, v = _pq  # fused no-grad path already built v
+        else:
+            attn_q, attn_k = _pq
+            v = coords.unsqueeze(-2).expand(-1, -1, self.n_heads, -1)
+            v = F.pad(v, (0, 5), value=0)
         attn_out = xops.memory_efficient_attention(
             attn_q.unsqueeze(0).to(v.dtype), attn_k.unsqueeze(0).to(v.dtype), v,
             scale=self.factor, attn_bias=block_diagonal_mask, p=p_drop,
