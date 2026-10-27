@@ -178,6 +178,16 @@ Evaluation results are written to `eval_results.json` inside each generated resu
 - The MEET backbone (`models/modules/MEET`) and the generative modeling utilities (`models/modules/generative`) can also be used as standalone packages. Each module contains a self-contained README, and you are welcome to use and explore them independently.
 
 
+## Performance (DCU / Hygon BW1000)
+
+Optimization results, the list of validated optimizations, and the list of
+already-excluded directions (to avoid duplicate effort) are documented in
+[DCU_PERFORMANCE.md](DCU_PERFORMANCE.md).
+
+Headline: b64 ~530-541 samples/s (about +250% over the reported baseline,
+~108% of PRO5000 + xFormers); b128 650.2 samples/s if the training protocol
+allows a larger batch (learning rate must be scaled accordingly).
+
 ## Contact
 
 For questions, please contact:
