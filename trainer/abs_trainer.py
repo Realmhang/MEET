@@ -223,6 +223,7 @@ class Trainer:
         if self.train_loader.sampler is not None and self.local_rank != -1:  # distributed
             self.train_loader.sampler.set_epoch(self.epoch)
         self._train_epoch_begin(device)
+        _epoch_params = tuple(self.model.parameters()) if _FUSED_OPT else ()
         t_iter = tqdm(self.train_loader, ascii=True) if self._is_main_proc() else self.train_loader
         for batch in t_iter:
             batch = self.to_device(batch, device)
@@ -299,7 +300,7 @@ class Trainer:
                         # unscale pass AND the clip mul pass (~2GB traffic/step).
                         # bf16 autocast keeps grads fp32, so loss scaling is unneeded;
                         # non-finite norm -> found_inf -> kernel skips the update.
-                        _ps = [p for p in self.model.parameters() if p.grad is not None and p.requires_grad]
+                        _ps = [p for p in _epoch_params if p.grad is not None and p.requires_grad]
                         _gs = [p.grad for p in _ps]
                         _norms = torch._foreach_norm(_gs)
                         ori_grad_norm = torch.linalg.vector_norm(torch.stack(_norms))

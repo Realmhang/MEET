@@ -140,7 +140,8 @@ class LatentGeneratorHX(nn.Module):
     def _prepare_gen_batch(self, inputs: VAEModelInput):
         # encode latent_H_0 (N*d1), latent_V_0 (N*d2*3), and latent_X_0 (N*3)
         with torch.no_grad():
-            self.autoencoder.eval()
+            if self.autoencoder.training:
+                self.autoencoder.eval()
             # encoding
             encoded = self.autoencoder.encode(
                 inputs.X, inputs.S, inputs.A, inputs.bonds, inputs.chain_ids, inputs.ligand_mask, inputs.block_lengths, inputs.lengths,

@@ -180,13 +180,20 @@ Evaluation results are written to `eval_results.json` inside each generated resu
 
 ## Performance (DCU / Hygon BW1000)
 
-Optimization results, the list of validated optimizations, and the list of
-already-excluded directions (to avoid duplicate effort) are documented in
-[DCU_PERFORMANCE.md](DCU_PERFORMANCE.md).
+On two BW1000 devices, the retained optimizations achieve **570.64 samples/s at
+b64** and **204.69 samples/s at b16**, respectively **+6.12% / +7.68%** over the
+same-day baseline that already includes the earlier DCU optimizations. Each
+configuration was measured twice for 150 steps, using steps 80–145; throughput
+is calculated from the mean of the two runs' median step times. These results
+use BF16 autocast and random VAE weights, not final task-quality guarantees.
 
-Headline: b64 ~530-541 samples/s (about +250% over the reported baseline,
-~108% of PRO5000 + xFormers); b128 650.2 samples/s if the training protocol
-allows a larger batch (learning rate must be scaled accordingly).
+The retained changes are BC128 attention backward, a VAE eval-mode guard, and
+an epoch parameter-reference cache. Experimental inverse-gather and custom FFN
+optimizations are excluded. Reproduction tools are provided in
+[`scripts/dcu/benchmark_train.py`](scripts/dcu/benchmark_train.py) and
+[`scripts/dcu/verify_optimizations.py`](scripts/dcu/verify_optimizations.py).
+[DCU_PERFORMANCE.md](DCU_PERFORMANCE.md) is retained as a historical record;
+its exploratory claims are not current delivery guarantees.
 
 ## Contact
 

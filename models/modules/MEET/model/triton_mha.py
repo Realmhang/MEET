@@ -1064,6 +1064,37 @@ def _off2_kernel(CU, OFF2, B: tl.constexpr):
     tl.store(OFF2 + b, ps, mask=m)
 
 
+@triton.jit
+def _grad_channel_kernel(W, X, Y, CU, OFF2, sxn, sxh, syn, syh, N2, scale,
+                         D: tl.constexpr, TRANS: tl.constexpr,
+                         BO: tl.constexpr, BR: tl.constexpr, BC: tl.constexpr):
+    po = tl.program_id(0)
+    b = tl.program_id(1)
+    hc = tl.program_id(2)
+    h = hc // tl.cdiv(D, BC)
+    c = hc % tl.cdiv(D, BC)
+    start = tl.load(CU + b)
+    s = tl.load(CU + b + 1) - start
+    if po * BO >= s:
+        return
+    o = po * BO + tl.arange(0, BO)
+    d = c * BC + tl.arange(0, BC)
+    off = h.to(tl.int64) * N2.to(tl.int64) + tl.load(OFF2 + b).to(tl.int64)
+    acc = tl.zeros((BO, BC), tl.float32)
+    for r0 in range(tl.cdiv(s, BR)):
+        r = r0 * BR + tl.arange(0, BR)
+        if TRANS:
+            index = off + r[None, :].to(tl.int64) * s + o[:, None]
+        else:
+            index = off + o[:, None].to(tl.int64) * s + r[None, :]
+        w = tl.load(W + index, (o[:, None] < s) & (r[None, :] < s), 0)
+        x = tl.load(X + (start + r[:, None]) * sxn + h * sxh + d[None, :],
+                    (r[:, None] < s) & (d[None, :] < D), 0)
+        acc += tl.dot(w.to(x.dtype), x)
+    tl.store(Y + (start + o[:, None]) * syn + h * syh + d[None, :],
+             acc * scale, (o[:, None] < s) & (d[None, :] < D))
+
+
 def mha_varlen_bwd_tiled5(q, k, v, o, lse, do, cu_seqlens, seqlens, sm_scale, max_len=None,
                           bm=32, bn=32, warps=4, stages=1, static_key=None, n2max=None):
     """5-kernel tiled bwd (PMC-guided champion, -26.5% vs fused-dkv 3-kernel):
@@ -1086,7 +1117,7 @@ def mha_varlen_bwd_tiled5(q, k, v, o, lse, do, cu_seqlens, seqlens, sm_scale, ma
     pbuf = torch.empty(H, n2, device=q.device, dtype=torch.bfloat16)
     dpbuf = torch.empty(H, n2, device=q.device, dtype=torch.bfloat16)
 
-    # every output row is written exactly once by its tile (no cross-program
+    # every output element is written exactly once by its tile (no cross-program
     # accumulation), so bf16 direct store is safe and identical numerically
     # (fp32 accum in registers, cast fused into the store)
     dq = torch.empty(N, H, DQK, device=q.device, dtype=q.dtype)
@@ -1109,29 +1140,18 @@ def mha_varlen_bwd_tiled5(q, k, v, o, lse, do, cu_seqlens, seqlens, sm_scale, ma
         n2, DVT=DV, H=H, BM=bm, BN=bn,
         num_warps=warps, num_stages=stages,
     )
-    _dq_t_kernel[(triton.cdiv(max_len, bm), B, H)](
-        dpbuf, k, dq, cu_seqlens, off2,
-        sm_scale,
-        k.stride(0), k.stride(1),
-        dq.stride(0), dq.stride(1),
-        n2, DQK=DQK, H=H, BM=bm, BN=bn,
-        num_warps=warps, num_stages=stages,
-    )
-    _dk_t_kernel[(triton.cdiv(max_len, bn), B, H)](
-        dpbuf, q, dk, cu_seqlens, off2,
-        sm_scale,
-        q.stride(0), q.stride(1),
-        dk.stride(0), dk.stride(1),
-        n2, DQK=DQK, H=H, BM=bm, BN=bn,
-        num_warps=warps, num_stages=stages,
-    )
-    _dv_t_kernel[(triton.cdiv(max_len, bn), B, H)](
-        pbuf, do, dv, cu_seqlens, off2,
-        do.stride(0), do.stride(1),
-        dv.stride(0), dv.stride(1),
-        n2, DVT=DV, H=H, BM=bm, BN=bn,
-        num_warps=warps, num_stages=stages,
-    )
+    for weights, x, out, trans, factor, block_out, block_reduce in (
+            (dpbuf, k, dq, False, sm_scale, bm, bn),
+            (dpbuf, q, dk, True, sm_scale, bn, bm),
+            (pbuf, do, dv, True, 1.0, bn, bm)):
+        dim = out.shape[-1]
+        grid = (triton.cdiv(max_len, block_out), B, H * triton.cdiv(dim, 128))
+        _grad_channel_kernel[grid](
+            weights, x, out, cu_seqlens, off2,
+            x.stride(0), x.stride(1), out.stride(0), out.stride(1), n2, factor,
+            D=dim, TRANS=trans, BO=block_out, BR=block_reduce, BC=128,
+            num_warps=warps, num_stages=stages,
+        )
     return dq.to(q.dtype), dk.to(k.dtype), dv.to(v.dtype)
 
 def mha_varlen_bwd(q, k, v, o, lse, do, cu_seqlens, sm_scale, max_len=None,
